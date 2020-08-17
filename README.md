@@ -1,4 +1,4 @@
-# horrormovieanalysis
+# Horror/Thriller Movie Analysis
 Exploratory data analysis on IMDB movies data, specifically, horror and thriller movies
 
 # Data
