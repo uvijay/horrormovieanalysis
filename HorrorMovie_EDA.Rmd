@@ -1,0 +1,395 @@
+---
+title: "THRILLER/HORROR MOVIE ANALYSIS - IMDB DATA"
+author: "Usha Vijayakumar"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: vignette
+---
+
+Why do people watch horror movies that solely aims to shock, frighten and horrify us? Why so many horror movies hit the theaters every year? How many of these movies are really successful? What are some common themes or plots of these successful movies?  Well, let's explore the IMDB dataset to find some insights! "Horror/Thriller" is rather a broad umbrella term which applies to a wide range of films with thriller or horror as part of their main larger genre or sub-genres. 
+
+```{r , echo=FALSE , results='hide', message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(data.table)
+library(ggpubr)
+library(formattable)
+library(ggthemes)
+library(corrplot)
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+library("prettydoc")
+library(tidytext)
+library(topicmodels)
+library(ggraph)
+library(igraph)
+library(widyr)
+
+setwd("F:/Datasets")
+movies_data_raw <- read.csv("IMDB-Dataset/movie_metadata.csv",stringsAsFactors=FALSE)
+```
+
+## Horror movies released every year 
+
+```{r, echo=FALSE , results='hide', message=FALSE, warning=FALSE}
+#movies_data_raw$movie_title <-str_replace_all(movies_data_raw$movie_title, "Ã", "")
+movies_data_raw$movie_title <- gsub("Ã", "", movies_data_raw$movie_title)
+
+movies_data_raw$movie_title_short <-  str_to_upper(str_trim(str_split(movies_data_raw$movie_title, "[:]",simplify = TRUE)[,1],"both"))
+movies_data_raw_split <- movies_data_raw %>%
+  separate(col = movie_title, into = c("title", "tv_title"), sep = 'TV')
+
+
+movies_data <- movies_data_raw_split[is.na(movies_data_raw_split$tv_title),]
+horror_movies <- movies_data %>%
+  filter(str_detect(genres, "Horror"))
+
+horror_movies <- horror_movies %>%
+  separate(col = genres, into = c("Genre", "Sub_Genre", "Genre3", "Genre4", "Genre5"), sep = '[|]',extra = "drop",fill = "right")
+horror_movies$Sub_Genre[is.na(horror_movies$Sub_Genre)] <- 'No Sub Genre'
+horror_movies$title <- str_to_upper(str_trim(horror_movies$title,"both"))
+horror_movies$director_name <- str_to_upper(str_trim(horror_movies$director_name,"both"))
+
+horror_movies <- horror_movies[as.numeric(horror_movies$title_year) > 1970, ]
+x <- "Maur\xEDcioÃ"
+Encoding(x) <- "UTF-8"
+x
+```
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+# number of movies released annually
+horror_movies %>%
+  group_by(title_year,) %>%
+  summarise(count_year = n(), .groups = 'drop') %>%
+  ggplot(aes(x = title_year, y = count_year, fill=count_year)) + 
+  geom_bar(stat = "identity") + 
+  theme_economist() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5, size = 12, ), 
+        axis.text.x=element_text(size=10, angle=90,hjust=0.95,vjust=0.5),
+        axis.text.y=element_text(size=10,hjust=0.5,vjust=0.5),
+        axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+        axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 8)) +
+  labs(title = "HORROR/THRILLER MOVIE RELEASES - [1970 - 2016]") + 
+  labs(x="YEAR", y="NO OF MOVIES") + 
+  scale_x_continuous(breaks = pretty(horror_movies$title_year, n = 15)) 
+```
+
+(Data until 2016) 
+
+Focusing on movies released after 1970, from the above chart, we can clearly see an increasing trend of horror movies released over the recent years.Approximately 40+ horror movies, highest number of movies in a year, were produced in 2012. Disney's <b> Frankweenie </b>, Chris Hemsworth's <b> The Cabin of the woods </b> are few notable movies from the same year.  
+
+How about the movie ratings based on sub-genre or movie themes? Because movie tend to have multiple genres and sub-genres, I narrowed my interest to main genres. The boxplot below shows the spread of IMDB ratings for various genres with horror as one of their subgenre.
+
+```{r, echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+genre_count <- horror_movies[!is.na(horror_movies$Genre),] %>%
+  group_by(Genre) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  as.data.frame()
+
+genre_count <- subset(genre_count, count>2)
+
+horror_movies[horror_movies$Genre %in% genre_count$Genre, ]  %>%
+  ggplot(aes(reorder(Genre, imdb_score, median, order = TRUE), y = imdb_score, fill = Genre)) + 
+  geom_boxplot() + 
+  coord_flip() + 
+  geom_label(data = genre_count, aes(x = Genre, y = 10, label = count),  hjust = 0, size = 3) + 
+  theme_economist() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5, size = 12, ),
+        plot.subtitle = element_text(hjust = 0.5, vjust = 0.5, size = 10, ),
+        axis.text.x=element_text(size=10, angle=90,hjust=0.95,vjust=0.5),
+        axis.text.y=element_text(size=10,hjust=1),
+        axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+        axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 8)) +
+  labs(title = "IMDB RATINGS BY GENRES",
+      subtitle = "Horror - main/sub genre") + 
+  guides(fill=FALSE) + 
+  ylim(0, 11) +
+  labs(x = "GENRE", y = "IMDB RATING")
+```
+
+Interestingly, movies with <b>Horror</b> as prime genre have the lowest IMDB rating, median of 5.5 appx. <b>Fantasy</b> and <b>Crime</b> movies with horror as one of the sub genres have the highest IMDB rating of horror movies. So, what are the high rated movies from these genres of Fantasy and Crime? Let's find out... 
+
+
+```{r, echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+subset(horror_movies, Genre %in% c('Fantasy','Adventure','Crime')) %>%
+  group_by(Genre,title) %>%
+  summarise(mean = mean(imdb_score)) %>%
+  arrange(mean) %>%
+  slice_max(order_by = mean, n = 5) %>%
+  ggplot(aes(x = reorder(title, mean), y = mean, label=mean)) + 
+  geom_point(size = 2) +
+  geom_segment(aes(x=reorder(title, mean), 
+                  xend=reorder(title, mean), 
+                  y=0,
+                  yend=mean), color = "grey50") +
+  geom_text(nudge_y = 0.5, size = 3) +
+  theme_economist() +
+  theme(plot.title = element_text(hjust = 0, vjust = 2, size = 12, ),
+        plot.subtitle = element_text(hjust = 0.5, vjust = 0.5, size = 10, ),
+        axis.text.x=element_text(size=10, angle=90,hjust=0.95,vjust=0.5),
+        axis.text.y=element_text(size=10,hjust=1),
+        axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+        axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 8),
+        strip.text = element_text(size = 10,face="bold")) +
+  labs(title = "HIGHEST RATED MOVIES BY GENRE", x = "MOVIES", y = "IMDB RATING") +
+  coord_flip() +
+  facet_wrap(~Genre , scales = "free_y", nrow=3)
+```
+
+## Which director has the highest IMDB rating for horror/thriller movies?
+
+```{r , echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+#Director vs IMDB rating 
+
+subset(horror_movies, num_voted_users>50) %>%
+      group_by(director_name) %>%
+      summarise(title = max(movie_title_short), mean = mean(imdb_score)) %>%
+      arrange(desc(mean)) %>% 
+      top_n(n= 10) %>%
+      ggplot(aes(x = reorder(director_name,mean), y = mean, label=mean)) + 
+      geom_point(size = 4, color = "#00BFC4") +
+      geom_segment(aes(x=reorder(director_name, mean), 
+                      xend=reorder(director_name, mean), 
+                      y=0,
+                      yend=mean)) +
+      geom_text(nudge_y = 0.5, size = 3.5) +
+      geom_label(aes(x = director_name, y = 0, label = title),  hjust = 0, size = 3) + 
+      theme_economist() +
+      theme(plot.title = element_text(hjust = 2, vjust = 5, size = 12, ),
+            axis.text.x=element_text(size=10, angle=90,hjust=0.95,vjust=0.5),
+            axis.text.y=element_text(size=10,hjust=1),
+            axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+            axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+            legend.title = element_text(size = 8),
+            legend.text = element_text(size = 8)) +
+      coord_flip() +
+      labs(x="DIRECTOR NAME", y="AVG. IMDB RATING") +
+      ggtitle("TOP 10 DIRECTORS OF HORROR MOVIES BASED ON IMDB RATING") 
+```
+
+
+## How successful are horror/thriller movies? 
+
+<b>Focusing on USA Box Office</b>
+
+Knowing the overall ratings of horror movies are really low than other genres, yet, so many horror movies are released every year. Are these movies really successful? I looked at the 'Gross' and 'Budget' values for each movies to derive their profit and return on investment i.e profit/ money spent. For familiarity, the box office analysis is based only on the USA box office data of horror movies. Similar to the ratings chart across genre, the box plot below shows the ROI percentage for each genre. Surprisingly, a low rated 'horror' prime genre from the previous analysis, has second highest median ROI compared to other genres. Fantasy genre tops both the rating and box office list. Impressive! 
+
+```{r , echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+horror_movies_usa <- subset(horror_movies, country %in%  c("USA")) 
+horror_movies_usa$budget <- horror_movies_usa$budget/1000000
+horror_movies_usa$gross <- horror_movies_usa$gross/1000000
+horror_movies_usa$profit <- horror_movies_usa$gross - horror_movies_usa$budget
+horror_movies_usa$roi <- horror_movies_usa$profit/horror_movies_usa$budget
+
+horror_movies_usa[horror_movies_usa$Genre %in% genre_count$Genre, ]  %>%
+  ggplot(aes(x = reorder(Genre, roi), y = roi)) + 
+  geom_boxplot(fill="#265a99") + 
+  theme_economist() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.2, size = 12, ),
+        plot.subtitle = element_text(hjust = 0.5, vjust = -1, size = 10, ),
+         axis.text.x=element_text(size=10, hjust=0.95,vjust=0.5),
+        axis.text.y=element_text(size=10,hjust=1),
+        axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+        axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 8)) +
+  labs(title = "REVENUE BY GENRE",
+      subtitle = "Horror - main/sub genre") + 
+  guides(fill=FALSE) + 
+  ylim(0, 11) +
+  labs(x = "GENRE", y = "ROI (in %)")
+
+```
+
+From earlier analysis to view top 10 movies with highest ROI, found footage and independent movies dominated. For example, Paranormal activity, a classic found footage film, shot under a budget of mere 40,000 dollars collected nearly 90 million dollars. When it comes to success, it's pretty complicated. While small budget movies like paranormal activity achieves huge opening success at the box office, resulting in higher profit, mega budget movies tend to generate more revenue through marketing, merchandise etc., For simpler analysis let's focus on gross over budget and trends on the top box office grossed movies with a minimum budget of 1M$. 
+
+```{r , echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+horror_movies_usa <- horror_movies_usa %>% distinct(title, .keep_all = TRUE)
+toproimovies <- horror_movies_usa[order(horror_movies_usa$roi,decreasing  = TRUE),] %>% 
+                distinct() %>% 
+                filter(budget > 10) %>% 
+                head(10)
+
+topprofitmovies <- horror_movies_usa[order(horror_movies_usa$profit,decreasing  = TRUE),] %>% 
+                distinct() %>% 
+                filter(budget > 10) %>% 
+                head(10)
+
+
+toproimovies %>% ggplot(aes(x = reorder(title, roi), y = roi)) + 
+                  geom_bar(fill="#56B4E9", stat = "identity") + 
+                  theme_economist() +
+                  theme(plot.title = element_text(hjust = 0, vjust = 5, size = 12,),
+                  plot.subtitle = element_text(hjust = 0.2, vjust = 5, size = 10, ),
+                  axis.text.y=element_text(size=10,hjust=1),
+                  axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+                  axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+                  legend.title = element_text(size = 8),
+                  legend.text = element_text(size = 8)) +
+                  labs(title ="TOP HORROR MOVIES BASED ON ROI", subtitle = "BUDGET>1M$",y="ROI (in %)", x="MOVIE TITLE") + 
+                  coord_flip()
+
+
+```
+
+Gremlins, a little project of Steven Spielberg, was directed by Joe Dante with a budget of 11M\$ and grossed 150M\$. In 1984, <b>Ghostbusters</b> and <b>Gremlins</b>, top two movies, released on the same day. Certainly Ghostbusters took first place at the box office but the movie was made with a budget of 80M$. So, we see Gremlins topping our chart with highest ROI followed by the most popular horror/thriller movies like Poltergeist and The Silence of the lambs. 
+
+```{r , echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+toproidirectors <- select(horror_movies_usa, director_name, title, roi, budget) %>% 
+                   filter(budget > 10) %>% 
+                   group_by(director_name) %>%
+                   summarise(title=min(title), count = n(), mean_roi = mean(roi)) %>%
+                   filter(count > 1) %>% 
+                   arrange(desc(mean_roi))  %>% 
+                   head(10)
+toproidirectors %>%
+                ggplot(aes(x = reorder(director_name, mean_roi), y = mean_roi)) + 
+                geom_point(size=4) +
+                geom_segment(aes(x=director_name,xend=director_name,y=0,yend=mean_roi)) + 
+                geom_label(aes(x = director_name, y = -2, label = title),  hjust = 0, size = 3) + 
+                theme_economist() +
+                theme(plot.title = element_text(hjust = 0, vjust = 5, size = 12, ),
+                        plot.subtitle = element_text(hjust = 0.2, vjust = 3, size = 10, ),
+                        axis.text.x=element_text(size=10, angle=90,hjust=0.95,vjust=0.5),
+                        axis.text.y=element_text(size=10,hjust=1),
+                        axis.title.x=element_text(size=9, face="bold", hjust=0.5,vjust=-1),
+                        axis.title.y=element_text(size=9, face="bold", hjust=0.5,vjust=2),
+                        legend.title = element_text(size = 8),
+                        legend.text = element_text(size = 8))  +
+                 labs(title ="TOP HOROR MOVIE DIRECTORS BASED ON ROI", 
+                 subtitle = "BUDGET >1M$ - Directed multiple horror movies", y="AVG ROI (in %)", x="DIRECTOR NAME") + 
+                 coord_flip()
+```
+
+Again, <b>Joe Dante</b>, director of Gremlins takes the first place in top movie directors based on ROI followed by the famous <b>James Wan</b>. Interestingly, hugely popular horror movie in the recent times, The Conjuring seems to be lower in ROI than Gremlins. 
+
+
+Now, let's delve into analysis on plot themes or keywords. Plot themes are usually multiple texts defining an underlying theme of the movie. One such famous plot theme in the thriller genre is Serial Killer. Firstly, I created a word cloud using the plot theme keywords of movies with highest return on investments and then analyze the trend of few of those major plot themes across years. 
+
+
+## Plot themes for highest ROI horror movies
+
+```{r , echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+toproimovies_30 <- horror_movies_usa[order(horror_movies_usa$roi, decreasing =TRUE),] %>%
+                head(30)
+toproimovies_30$plot_keywords <- str_replace_all(toproimovies_30$plot_keywords,"\\|"," ")
+corpus_30 = Corpus(VectorSource(toproimovies_30$plot_keywords))
+
+
+#Conversion to Lowercase
+corpus_30 = tm_map(corpus_30, PlainTextDocument)
+corpus_30 = tm_map(corpus_30, tolower)
+ 
+#Removing Punctuation
+corpus_30 = tm_map(corpus_30, removePunctuation)
+
+#Remove stop words
+corpus_30 = tm_map(corpus_30, removeWords, c("cloth", "death",stopwords("english")))
+ 
+# Stemming
+#corpus = tm_map(corpus, stemDocument)
+
+# Eliminate white spaces
+corpus_30 = tm_map(corpus_30, stripWhitespace)
+
+DTM_30 <- TermDocumentMatrix(corpus_30)
+mat_30 <- as.matrix(DTM_30)
+f_30 <- sort(rowSums(mat_30),decreasing=TRUE)
+dat_30 <- data.frame(word = names(f_30),freq=f_30)
+
+set.seed(100)
+wordcloud(words = dat_30$word, freq = dat_30$freq, min.freq = 2, max.words=150, scale=c(4,.5), 
+          random.order=FALSE, rot.per=.30,vfont=c("sans serif","bold"), colors=brewer.pal(8, "Dark2"))
+```
+
+
+From the above word cloud using the corpus of texts, we see some of the major plot themes of the highest roi movies are <b>serial killer</b>,<b>slasher</b>,<b>found footage</b>. These are individual words and terms, now, let's consider relationship between words and look for terms that tend to co-occur. Below graph displays bigrams that occured more than two times. Though there's no major central theme of nodes, note that there are two interesting shorter themes in the graph.<b>Serial killer</b>, <b>michael myers</b>, <b>psychopaths</b>, <b>murder</b> are one group of themes connected together with slasher, masked and hallowen. Also note that <b>haunted house</b> co-occur together with <b>paranormal</b>,<b>ghost</b> and <b>investigator</b>. 
+
+```{r, echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+movies_ordered <- select(horror_movies, title, title_year,plot_keywords, gross, budget) %>%  
+                  filter(!is.na(gross) & budget > 1) %>% 
+                  arrange(desc(gross))
+                          
+movies_ordered$plot_keywords <- str_replace_all(movies_ordered$plot_keywords,"\\|"," ")
+
+
+mystopwords <- tibble(word = c("an", "a", "and", "as", "at", "b", 
+                               "blood", "death", "or", "in", "cm",
+                               "on", "to", "sex", "breasts", "the"))
+genstopwords <- stopwords("english")
+
+text_df_bigrams <- movies_ordered %>%
+  unnest_tokens(bigram, plot_keywords, token = "ngrams", n = 2) %>%
+  separate(bigram, c("word1", "word2"), sep = " ")  %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)  %>%
+  filter(!word2 %in% genstopwords) %>%
+  filter(!word2 %in% genstopwords) 
+
+bigram_counts <- text_df_bigrams %>% 
+  count(word1, word2, sort = TRUE)
+
+bigram_graph <- bigram_counts %>%
+  filter(n > 2) %>%
+  graph_from_data_frame()
+
+set.seed(2016)
+
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+                 arrow = a, end_cap = circle(.07, 'inches')) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), size = 3, vjust = 1, hjust = 0.6) +
+  theme_void()
+```
+
+
+Focusing on few of those major plot themes and plotting movies with those themes across their release years to see their trend and popularity. Higher the number of movies higher the popularity. <b> Found Footage</b> and <b>Zombie</b> movies seemed to have gained popularity around 2000's and continues to be in trend.<b>Serial Killer</b> and <b> Slasher</b> movies tend to have an decreasing trend in recent years. <b>Vampire</b> movies has gained a spike of popularity during mid 90s to 2000s and <b>Paranormal</b> movies seemed to have increasing trend since 2010. 
+
+```{r, echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+year_term_counts <- movies_ordered %>%
+  unnest_tokens(word, plot_keywords) %>%
+  filter(!word %in% stop_words$word) %>%
+  filter(!word %in% stop_words$word)  %>% 
+  count(title_year, word) %>%
+  bind_tf_idf( title_year,word, n) %>%
+  arrange(desc(tf_idf))  %>%
+  complete(title_year, word, fill = list(n = 0)) %>%
+  group_by(title_year) %>%
+  mutate(year_total = sum(n))
+
+year_term_counts %>% 
+  filter(word %in% c("zombie", "slasher", "footage", "killer","vampire","paranormal")) %>%
+  ggplot(aes(title_year, n/year_total)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~ word, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  ylab("% frequency of word in movie plots")
+```
+
+## Conclusion
+
+
+In this exploratory analysis of horror movies data, we explored the data to find highest rated movies and directors based on genre and ROI and then explored the plot keywords to find some common themes across movies and trends of those themes.   
+
